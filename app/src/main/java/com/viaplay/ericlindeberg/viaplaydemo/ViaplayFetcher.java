@@ -19,6 +19,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ViaplayFetcher {
 
@@ -27,7 +28,8 @@ public class ViaplayFetcher {
     // Parameterlös konstruktor
     public ViaplayFetcher(){}
 
-    // Hämtar raw data från en URL och returnerar det som en array av bytes
+    //region HTTP
+    // Hämtar data från en URL och returnerar det som en array av bytes
     private byte[] getUrlBytes(String urlSpec) throws IOException{
         URL url = new URL(urlSpec);
 
@@ -44,7 +46,7 @@ public class ViaplayFetcher {
                 throw new IOException(connection.getResponseMessage() + ": with " + urlSpec);
             }
 
-            int bytesRead = 0;
+            int bytesRead;
             byte[] buffer = new byte[1024];
             while ((bytesRead = in.read(buffer)) > 0){
                 out.write(buffer, 0, bytesRead);
@@ -56,11 +58,13 @@ public class ViaplayFetcher {
         }
     }
 
-
     private String getUrlString(String urlSpec) throws IOException{
         return new String(getUrlBytes(urlSpec));
     }
+    //endregion
 
+    //region Fetchers
+    // Hämtar JSON för titlar åt Navigation Menu undermenyer
     public HashMap<String, String> fetchData(String url, boolean isConnected, Context ctx) {
 
         HashMap<String, String> items = new HashMap<>();
@@ -71,7 +75,15 @@ public class ViaplayFetcher {
                 Log.i(TAG, "Recieved JSON: " + jsonString);
                 JSONObject jsonBody = new JSONObject(jsonString);
                 WriteToFile(jsonBody, null, ctx);
-                parseData(items, jsonBody);
+                parseTitles(items, jsonBody);
+
+                // Hämtar alla JSON filer som behövs och sparar till lokala lagringen.
+                // Detta för att kunna använda applikationen offline efter första start.
+                for (Map.Entry entry :
+                        items.entrySet()) {
+                    fetchFromHref(entry.getValue().toString(),
+                            entry.getKey().toString(), isConnected, ctx);
+                }
             } catch (JSONException je) {
                 Log.e(TAG, "Failed to parse JSON", je);
             } catch (IOException ioe) {
@@ -79,10 +91,9 @@ public class ViaplayFetcher {
             }
             return items;
         }
-        //TODO läsa från JSON fil
         else {
             try {
-                parseData(items, ReadFromFile("titles", ctx));
+                parseTitles(items, ReadFromFile("titles", ctx));
             } catch (IOException ioe) {
                 Log.e(TAG, "Failed to fetch items", ioe);
             } catch (JSONException je) {
@@ -92,6 +103,7 @@ public class ViaplayFetcher {
         }
     }
 
+    // Hämtar JSON från vald href
     public List<String> fetchFromHref(String href, String title,
                                       boolean isConnected, Context ctx) {
         List<String> items = new ArrayList<>();
@@ -108,10 +120,8 @@ public class ViaplayFetcher {
             } catch (IOException ioe) {
                 Log.e(TAG, "Failed to fetch items", ioe);
             }
-
             return items;
         }
-        //TODO läsa från JSON fil
         else {
             try {
                 parseHref(items, ReadFromFile(title, ctx));
@@ -123,7 +133,11 @@ public class ViaplayFetcher {
             return items;
         }
     }
+    //endregion
 
+    //region File Handling
+
+    // Sparar JSON-filer till den lokala lagringen
     private void WriteToFile(JSONObject jsonBody, String title, Context ctx) {
         try {
             OutputStreamWriter outputStreamWriter;
@@ -139,7 +153,7 @@ public class ViaplayFetcher {
             }
             outputStreamWriter.write(jsonBody.toString());
             outputStreamWriter.close();
-            Log.i("File Writing", "Successfully wrote Titles JSON to file");
+            Log.i("File Writing", "Successfully wrote " + title + " JSON to file");
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         } catch (IOException e) {
@@ -147,8 +161,8 @@ public class ViaplayFetcher {
         }
     }
 
+    // Läser in JSON-filer från den lokala lagringen
     private JSONObject ReadFromFile(String title, Context ctx){
-        String ret = "";
         JSONObject jsonBody = null;
 
         try {
@@ -157,7 +171,7 @@ public class ViaplayFetcher {
             if (inputStream != null){
                 InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
                 BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
-                String recieveString = "";
+                String recieveString;
                 StringBuilder stringBuilder = new StringBuilder();
 
                 while ((recieveString = bufferedReader.readLine()) != null){
@@ -165,8 +179,7 @@ public class ViaplayFetcher {
                 }
 
                 inputStream.close();
-                ret = stringBuilder.toString();
-                jsonBody = new JSONObject(ret);
+                jsonBody = new JSONObject(stringBuilder.toString());
             }
         } catch (FileNotFoundException e){
             Log.e("FileError", "File not found: " + e.toString());
@@ -177,31 +190,37 @@ public class ViaplayFetcher {
         }
         return jsonBody;
     }
+    //endregion
+
+    //region Parse Handling
 
     // Hämtar titlarna från viaplay:sections
-    private JSONArray parseData(HashMap<String, String> items, JSONObject jsonBody)
+    private void parseTitles(HashMap<String, String> items, JSONObject jsonBody)
             throws IOException, JSONException {
 
-        JSONObject jsonObject = jsonBody.getJSONObject("_links");
-        JSONArray jsonArray = jsonObject.getJSONArray("viaplay:sections");
+        if (jsonBody != null) {
+            JSONObject jsonObject = jsonBody.getJSONObject("_links");
+            JSONArray jsonArray = jsonObject.getJSONArray("viaplay:sections");
 
-        for (int i = 0; i < jsonArray.length(); i++) {
-            JSONObject menuItemJsonObject = jsonArray.getJSONObject(i);
+            for (int i = 0; i < jsonArray.length(); i++) {
+                JSONObject menuItemJsonObject = jsonArray.getJSONObject(i);
 
-            // Använder HashMap för att binda Titel med dess href
-            String title = menuItemJsonObject.getString("title");
-            String href = menuItemJsonObject.getString("href");
+                // Använder HashMap för att binda Titel med dess href
+                String title = menuItemJsonObject.getString("title");
+                String href = menuItemJsonObject.getString("href");
 
-            // Tar bort flaggan för downloadable content
-            items.put(title, href.replace("{?dtg}", ""));
+                // Tar bort flaggan för downloadable content
+                items.put(title, href.replace("{?dtg}", ""));
+            }
         }
-        return jsonObject.getJSONArray("viaplay:sections");
     }
 
+    // Hämtar info från respektive titel, t.ex. från Viaplay serier
     private void parseHref(List<String> items, JSONObject jsonBody)
             throws IOException, JSONException{
 
         items.add(jsonBody.getString("title"));
         items.add(jsonBody.getString("description"));
     }
+    //endregion
 }
