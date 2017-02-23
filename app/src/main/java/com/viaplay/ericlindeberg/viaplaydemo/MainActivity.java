@@ -1,6 +1,9 @@
 package com.viaplay.ericlindeberg.viaplaydemo;
 
 import android.app.ProgressDialog;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.design.widget.NavigationView;
@@ -16,7 +19,6 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 public class MainActivity extends AppCompatActivity
         implements NavigationView.OnNavigationItemSelectedListener {
@@ -24,8 +26,9 @@ public class MainActivity extends AppCompatActivity
     TextView title;
     TextView desc;
 
-    private HashMap<String, String> test = new HashMap<>();
+    private HashMap<String, String> hmap = new HashMap<>();
     private List<String> href = new ArrayList<>();
+    private boolean isConnected;
 
     ViaplayFetcher viaplayFetcher;
 
@@ -33,18 +36,19 @@ public class MainActivity extends AppCompatActivity
     DrawerLayout drawer;
     Toolbar toolbar;
 
+    //region AsyncTask Fetchers
     private class FetchItemsTask extends AsyncTask<Void, Void, HashMap<String, String>>{
 
         @Override
         protected HashMap<String, String> doInBackground(Void... params){
 
-            return viaplayFetcher.fetchData("https://content.viaplay.se/androidv2-se");
-
+            return viaplayFetcher.fetchData("https://content.viaplay.se/androidv2-se", isConnected,
+                    getApplicationContext());
         }
 
         @Override
         protected void onPostExecute(HashMap<String, String> returnedTitles) {
-            test = returnedTitles;
+            hmap = returnedTitles;
             UpdateMenuItems();
         }
     }
@@ -61,22 +65,34 @@ public class MainActivity extends AppCompatActivity
 
         @Override
         protected List<String> doInBackground(String... strings) {
-            return viaplayFetcher.fetchFromHref(strings[0]);
+            return viaplayFetcher.fetchFromHref(strings[0], strings[1],
+                    isConnected, getApplicationContext());
         }
 
         @Override
         protected void onPostExecute(List<String> strings) {
+            if (progressDialog != null && progressDialog.isShowing())
+                progressDialog.dismiss();
             href = strings;
             title.setText(href.get(0));
             desc.setText(href.get(1));
-            if (progressDialog != null && progressDialog.isShowing())
-                progressDialog.dismiss();
         }
+    }
+    //endregion
+
+    private void CheckInternetConnection(){
+        ConnectivityManager cm =
+                (ConnectivityManager)this.getSystemService(Context.CONNECTIVITY_SERVICE);
+
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        isConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        CheckInternetConnection();
 
         viaplayFetcher = new ViaplayFetcher();
         new FetchItemsTask().execute();
@@ -104,7 +120,7 @@ public class MainActivity extends AppCompatActivity
         toggle.syncState();
 
         for (String item :
-                test.keySet()) {
+                hmap.keySet()) {
             menu.add(1, Menu.NONE, Menu.NONE, item);
         }
 
@@ -126,8 +142,10 @@ public class MainActivity extends AppCompatActivity
     @Override
     public boolean onNavigationItemSelected(MenuItem item) {
 
+        CheckInternetConnection();
+
         // När ett objekt i Navigation listan blir valt så hämtas dess respektive href data
-        new FetchHrefTask().execute(test.get(item.toString()));
+        new FetchHrefTask().execute(hmap.get(item.toString()), item.toString());
 
         DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
         drawer.closeDrawer(GravityCompat.START);
