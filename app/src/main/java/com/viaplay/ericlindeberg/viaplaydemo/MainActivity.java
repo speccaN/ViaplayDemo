@@ -124,10 +124,13 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     protected void onDestroy() {
+        // Om skärmen roteras så måste PB förstöras för att förhindra window leak
         dismissProgressDialog();
         super.onDestroy();
     }
 
+    //region ProgressDialog
+    // Hanterar ProgressDialog.
     private void showProgressDialog() {
         if (progressDialog == null) {
             progressDialog = new ProgressDialog(MainActivity.this);
@@ -143,6 +146,7 @@ public class MainActivity extends AppCompatActivity
             progressDialog.dismiss();
         }
     }
+    //endregion
 
     // Metod för att dynamiskt uppdatera Navigation Menu med dess undermenyer
     private void UpdateMenuItems(){
