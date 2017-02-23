@@ -1,5 +1,6 @@
 package com.viaplay.ericlindeberg.viaplaydemo;
 
+import android.support.v4.app.FragmentManager;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -21,10 +22,14 @@ import java.util.HashMap;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity
-        implements NavigationView.OnNavigationItemSelectedListener {
+        implements NavigationView.OnNavigationItemSelectedListener, TaskFragment.TaskCallbacks {
 
     TextView title;
     TextView desc;
+
+    private static final String TAG_TASK_FRAGMENT = "task_fragment";
+
+    private  TaskFragment mTaskFragment;
 
     private HashMap<String, String> hmap = new HashMap<>();
     private List<String> href = new ArrayList<>();
@@ -36,24 +41,27 @@ public class MainActivity extends AppCompatActivity
     DrawerLayout drawer;
     Toolbar toolbar;
 
-    //region AsyncTask Fetchers
-    private class FetchItemsTask extends AsyncTask<Void, Void, HashMap<String, String>>{
+    @Override
+    public void onPreExecute() {
 
-        @Override
-        protected HashMap<String, String> doInBackground(Void... params){
-
-            return viaplayFetcher.fetchData("https://content.viaplay.se/androidv2-se", isConnected,
-                    getApplicationContext());
-        }
-
-        @Override
-        protected void onPostExecute(HashMap<String, String> returnedTitles) {
-            hmap = returnedTitles;
-            UpdateMenuItems();
-        }
     }
 
-    private class FetchHrefTask extends AsyncTask<String, Void, List<String>>{
+    @Override
+    public void onCancelled() {
+
+    }
+
+    @Override
+    public void onPostExecute(HashMap<String,String> s) {
+        hmap = s;
+        UpdateMenuItems();
+    }
+
+    //region AsyncTask Fetchers
+
+    // Körs vid start av applikationen. Finns det internet-uppkoppling så hämtas
+    // alla JSON filer. Har dom redan hämtats så läses dom in från den lokala lagringen.
+    private class FetchItemsTask extends AsyncTask<Void, Void, HashMap<String, String>>{
 
         ProgressDialog progressDialog = new ProgressDialog(MainActivity.this);
 
@@ -61,6 +69,36 @@ public class MainActivity extends AppCompatActivity
         protected void onPreExecute() {
             progressDialog.setMessage("Laddar");
             progressDialog.show();
+        }
+
+        @Override
+        protected HashMap<String, String> doInBackground(Void... params){
+            return viaplayFetcher.fetchData("https://content.viaplay.se/androidv2-se", isConnected,
+                    getApplicationContext());
+        }
+
+        @Override
+        protected void onPostExecute(HashMap<String, String> returnedTitles) {
+            if (progressDialog != null && progressDialog.isShowing())
+                progressDialog.dismiss();
+
+            hmap = returnedTitles;
+            UpdateMenuItems();
+        }
+    }
+
+    // Om det finns internet-uppkoppling så hämta data från den href som blivit vald
+    // i Navigation Menu. Istället för att hämta alla JSON filer varje gång
+    // så läser den bara in den man valt i menyn och sparar den till
+    // den lokala lagringen för att ha den senast uppdaterade versionen.
+    private class FetchHrefTask extends AsyncTask<String, Void, List<String>>{
+
+        ProgressDialog progressDialog = new ProgressDialog(MainActivity.this);
+
+        @Override
+        protected void onPreExecute() {
+            progressDialog.setMessage("Laddar");
+            //progressDialog.show();
         }
 
         @Override
@@ -74,7 +112,9 @@ public class MainActivity extends AppCompatActivity
             if (progressDialog != null && progressDialog.isShowing())
                 progressDialog.dismiss();
             href = strings;
+            // Skriver ut titel för att visa användaren vart den befinner sig just nu
             title.setText(href.get(0));
+            // Skriver ut beskrivning för användaren
             desc.setText(href.get(1));
         }
     }
@@ -92,10 +132,7 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        CheckInternetConnection();
-
         viaplayFetcher = new ViaplayFetcher();
-        new FetchItemsTask().execute();
 
         setContentView(R.layout.activity_main);
         toolbar = (Toolbar) findViewById(R.id.toolbar);
@@ -104,8 +141,30 @@ public class MainActivity extends AppCompatActivity
         title = (TextView) findViewById(R.id.textTitle);
         desc = (TextView) findViewById(R.id.textDesc);
 
+        FragmentManager fm = getSupportFragmentManager();
+        mTaskFragment = (TaskFragment) fm.findFragmentByTag(TAG_TASK_FRAGMENT);
+
+        if (mTaskFragment == null){
+            mTaskFragment = new TaskFragment();
+            fm.beginTransaction().add(mTaskFragment, TAG_TASK_FRAGMENT).commit();
+        } else {
+            fm.findFragmentByTag(TAG_TASK_FRAGMENT);
+            fm.beginTransaction().remove(mTaskFragment).commit();
+            mTaskFragment = new TaskFragment();
+            fm.beginTransaction().add(mTaskFragment, TAG_TASK_FRAGMENT).commit();
+        }
+
+        CheckInternetConnection();
+
+        //viaplayFetcher = new ViaplayFetcher();
+        //new FetchItemsTask().execute();
+
+        if (hmap.size() == 0) {
+            desc.setText("Var god starta om applikationen när du har internet-uppkopling");
+        }
     }
 
+    // Metod för att dynamiskt uppdatera Navigation Menu med dess undermenyer
     private void UpdateMenuItems(){
 
         navigationView = (NavigationView) findViewById(R.id.nav_view);
@@ -119,6 +178,7 @@ public class MainActivity extends AppCompatActivity
         drawer.addDrawerListener(toggle);
         toggle.syncState();
 
+        // För att dynamiskt lägga till de undermenyer som ligger i Navigation Menu
         for (String item :
                 hmap.keySet()) {
             menu.add(1, Menu.NONE, Menu.NONE, item);
